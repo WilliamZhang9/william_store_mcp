@@ -1,0 +1,54 @@
+{
+  "categories": [
+    "Skincare",
+    "Makeup",
+    "Accessories"
+  ],
+  "products": [
+    {
+      "name": "Hydra Glow Serum",
+      "category": "Skincare",
+      "price": 39.99,
+      "description": "Lightweight hydrating serum with hyaluronic acid for daily moisture.",
+      "picture": "https://upload.wikimedia.org/wikipedia/commons/9/94/2_oz_-_60_ml_Amber_Glass_Boston_Round_Bottles_with_Gold_Metal_and_Glass_Droppers.jpg"
+    },
+    {
+      "name": "Velvet Matte Lipstick",
+      "category": "Makeup",
+      "price": 24.5,
+      "description": "Long-wear matte lipstick with rich pigment and smooth finish.",
+      "picture": "https://upload.wikimedia.org/wikipedia/commons/1/16/MAC_pink_lipstick_%281%29.jpg"
+    },
+    {
+      "name": "Pearl Claw Clip",
+      "category": "Accessories",
+      "price": 12.0,
+      "description": "Elegant pearl hair claw clip for quick and stylish updos.",
+      "picture": "https://upload.wikimedia.org/wikipedia/commons/1/1e/3_big_claw_clips_for_thick_long_hair.png"
+    },
+    {
+      "name": "Sun Shield SPF 50",
+      "category": "Skincare",
+      "price": 29.0,
+      "description": "Broad-spectrum SPF 50 sunscreen with non-greasy finish.",
+      "picture": "https://upload.wikimedia.org/wikipedia/commons/a/a2/Suncademy_airless_bottle_sunscreen_citronella_active_ingredients.jpg"
+    }
+  ],
+  "discountPolicy": [
+    {
+      "minimumOrderAmount": 100,
+      "discountPercent": 10,
+      "description": "10% off when order amount is at least $100."
+    },
+    {
+      "minimumOrderAmount": 200,
+      "discountPercent": 20,
+      "description": "20% off when order amount is at least $200."
+    },
+    {
+      "minimumOrderAmount": 500,
+      "discountPercent": 30,
+      "description": "30% off when order amount is at least $500."
+    }
+  ]
+}
