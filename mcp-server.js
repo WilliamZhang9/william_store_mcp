@@ -5,11 +5,21 @@ function escapeMarkdownCell(value) {
   return String(value).replaceAll("|", "\\|");
 }
 
+function formatNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return new Intl.NumberFormat("en-US").format(value);
+  }
+
+  return value ?? "";
+}
+
 function buildMarkdownTable(columns, rows) {
-  const header = `| ${columns.map(escapeMarkdownCell).join(" | ")} |`;
-  const divider = `| ${columns.map(() => "---").join(" | ")} |`;
+  const header = `| ${columns.map((column) => escapeMarkdownCell(column.label)).join(" | ")} |`;
+  const divider = `| ${columns
+    .map((column) => (column.align === "right" ? "---:" : "---"))
+    .join(" | ")} |`;
   const body = rows.map((row) => {
-    const cells = columns.map((column) => escapeMarkdownCell(row[column] ?? ""));
+    const cells = columns.map((column) => escapeMarkdownCell(row[column.key] ?? ""));
     return `| ${cells.join(" | ")} |`;
   });
 
@@ -123,18 +133,39 @@ export function createMcpStoreServer() {
           endYear,
           limit
         });
-        const columns = ["year", "value", "country", "indicator"];
-        const markdownTable = buildMarkdownTable(columns, result.rows);
+        const sortedRows = [...result.rows].sort((a, b) => Number(b.year) - Number(a.year));
+        const tableRows = sortedRows.map((row) => ({
+          Year: row.year,
+          Value: formatNumber(row.value),
+          Country: row.country,
+          Indicator: row.indicator
+        }));
+        const columns = [
+          { key: "Year", label: "Year", align: "left" },
+          { key: "Value", label: "Value", align: "right" },
+          { key: "Country", label: "Country", align: "left" },
+          { key: "Indicator", label: "Indicator", align: "left" }
+        ];
+        const markdownTable = buildMarkdownTable(columns, tableRows);
+        const years = sortedRows.map((row) => Number(row.year)).filter((year) => Number.isFinite(year));
+        const minYear = years.length > 0 ? Math.min(...years) : startYear;
+        const maxYear = years.length > 0 ? Math.max(...years) : endYear;
+        const title =
+          tableRows.length > 0
+            ? `**${tableRows[0].Country} - ${tableRows[0].Indicator} (${minYear}-${maxYear})**`
+            : `**${countryCode} - ${indicatorCode} (${startYear}-${endYear})**`;
 
         return {
           content: [
             {
               type: "text",
               text: [
+                `Summary: ${tableRows.length} row(s) returned.`,
                 `Data source: ${result.source}`,
                 `Endpoint: ${result.endpoint}`,
                 "",
-                "Table widget:",
+                title,
+                "",
                 markdownTable
               ].join("\n")
             }
@@ -142,8 +173,9 @@ export function createMcpStoreServer() {
           structuredContent: {
             source: result.source,
             endpoint: result.endpoint,
-            columns,
-            rows: result.rows,
+            columns: columns.map((column) => column.label),
+            rows: tableRows,
+            rawRows: sortedRows,
             widgetType: "table"
           }
         };
