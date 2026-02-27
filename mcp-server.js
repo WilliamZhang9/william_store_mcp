@@ -5,6 +5,15 @@ function escapeMarkdownCell(value) {
   return String(value).replaceAll("|", "\\|");
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function formatNumber(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
     return new Intl.NumberFormat("en-US").format(value);
@@ -24,6 +33,33 @@ function buildMarkdownTable(columns, rows) {
   });
 
   return [header, divider, ...body].join("\n");
+}
+
+function buildHtmlTable(columns, rows) {
+  const thStyle =
+    "padding:8px 12px;border:1px solid #d1d5db;background:#f3f4f6;text-align:left;font-weight:600;";
+  const tdBaseStyle = "padding:8px 12px;border:1px solid #e5e7eb;";
+  const headerRow = columns
+    .map((column) => `<th style="${thStyle}">${escapeHtml(column.label)}</th>`)
+    .join("");
+  const bodyRows = rows
+    .map((row) => {
+      const cells = columns
+        .map((column) => {
+          const align = column.align === "right" ? "text-align:right;" : "text-align:left;";
+          return `<td style="${tdBaseStyle}${align}">${escapeHtml(row[column.key] ?? "")}</td>`;
+        })
+        .join("");
+      return `<tr>${cells}</tr>`;
+    })
+    .join("");
+
+  return [
+    '<table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">',
+    `<thead><tr>${headerRow}</tr></thead>`,
+    `<tbody>${bodyRows}</tbody>`,
+    "</table>"
+  ].join("");
 }
 
 async function fetchWorldBankIndicator({
@@ -147,6 +183,7 @@ export function createMcpStoreServer() {
           { key: "Indicator", label: "Indicator", align: "left" }
         ];
         const markdownTable = buildMarkdownTable(columns, tableRows);
+        const htmlTable = buildHtmlTable(columns, tableRows);
         const years = sortedRows.map((row) => Number(row.year)).filter((year) => Number.isFinite(year));
         const minYear = years.length > 0 ? Math.min(...years) : startYear;
         const maxYear = years.length > 0 ? Math.max(...years) : endYear;
@@ -166,7 +203,10 @@ export function createMcpStoreServer() {
                 "",
                 title,
                 "",
-                markdownTable
+                markdownTable,
+                "",
+                "HTML table:",
+                htmlTable
               ].join("\n")
             }
           ],
@@ -176,6 +216,8 @@ export function createMcpStoreServer() {
             columns: columns.map((column) => column.label),
             rows: tableRows,
             rawRows: sortedRows,
+            markdownTable,
+            htmlTable,
             widgetType: "table"
           }
         };
