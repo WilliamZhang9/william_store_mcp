@@ -37,25 +37,26 @@ function buildMarkdownTable(columns, rows) {
 
 function buildHtmlTable(columns, rows) {
   const thStyle =
-    "padding:8px 12px;border:1px solid #d1d5db;background:#f3f4f6;text-align:left;font-weight:600;";
-  const tdBaseStyle = "padding:8px 12px;border:1px solid #e5e7eb;";
+    "padding:10px 12px;border:2px solid #333;background:#4A90E2;color:white;text-align:left;font-weight:bold;";
+  const tdBaseStyle = "padding:10px 12px;border:1px solid #666;";
   const headerRow = columns
     .map((column) => `<th style="${thStyle}">${escapeHtml(column.label)}</th>`)
     .join("");
   const bodyRows = rows
-    .map((row) => {
+    .map((row, index) => {
+      const bgColor = index % 2 === 0 ? 'background:#f9f9f9;' : 'background:#ffffff;';
       const cells = columns
         .map((column) => {
           const align = column.align === "right" ? "text-align:right;" : "text-align:left;";
           return `<td style="${tdBaseStyle}${align}">${escapeHtml(row[column.key] ?? "")}</td>`;
         })
         .join("");
-      return `<tr>${cells}</tr>`;
+      return `<tr style="${bgColor}">${cells}</tr>`;
     })
     .join("");
 
   return [
-    '<table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;">',
+    '<table style="border-collapse:collapse;width:100%;font-family:Arial,sans-serif;font-size:14px;border:2px solid #333;">',
     `<thead><tr>${headerRow}</tr></thead>`,
     `<tbody>${bodyRows}</tbody>`,
     "</table>"
