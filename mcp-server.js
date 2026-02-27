@@ -63,6 +63,10 @@ function buildHtmlTable(columns, rows) {
   ].join("");
 }
 
+function stripMarkdownBold(text) {
+  return String(text).replaceAll("**", "");
+}
+
 async function fetchWorldBankIndicator({
   countryCode = "CAN",
   indicatorCode = "SP.POP.TOTL",
@@ -219,7 +223,17 @@ export function createMcpStoreServer() {
             rawRows: sortedRows,
             markdownTable,
             htmlTable,
-            widgetType: "table"
+            widgetType: "table",
+            widget: {
+              type: "table",
+              title: stripMarkdownBold(title),
+              columns: columns.map((column) => ({
+                key: column.key,
+                label: column.label,
+                align: column.align
+              })),
+              rows: tableRows
+            }
           }
         };
       } catch (error) {
