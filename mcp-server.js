@@ -120,7 +120,7 @@ function buildWidgetHtml() {
 
       .toolbar {
         display: grid;
-        grid-template-columns: minmax(180px, 1fr) 132px 116px auto;
+        grid-template-columns: minmax(160px, 1fr) minmax(150px, 0.75fr) 112px 116px 116px auto;
         gap: 8px;
         align-items: center;
         margin-bottom: 12px;
@@ -156,6 +156,12 @@ function buildWidgetHtml() {
       .button:disabled {
         cursor: not-allowed;
         opacity: 0.55;
+      }
+
+      .button.secondary {
+        background: var(--bg);
+        border-color: var(--line);
+        color: var(--text);
       }
 
       .summary {
@@ -257,6 +263,29 @@ function buildWidgetHtml() {
         text-decoration: none;
       }
 
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .smallButton {
+        min-height: 32px;
+        padding: 0 10px;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: var(--panel);
+        color: var(--text);
+        cursor: pointer;
+      }
+
+      .note {
+        margin: 12px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
       .empty {
         padding: 22px;
         color: var(--muted);
@@ -264,10 +293,11 @@ function buildWidgetHtml() {
 
       @media (max-width: 720px) {
         .toolbar {
-          grid-template-columns: 1fr 92px;
+          grid-template-columns: 1fr 102px;
         }
 
-        .toolbar .button {
+        .toolbar .button,
+        .toolbar #localFilterInput {
           grid-column: 1 / -1;
         }
 
@@ -281,6 +311,7 @@ function buildWidgetHtml() {
     <main class="app">
       <form class="toolbar" id="searchForm">
         <input class="field" id="queryInput" name="query" placeholder="Search datasets" autocomplete="off" />
+        <input class="field" id="localFilterInput" name="localFilter" placeholder="Filter visible rows" autocomplete="off" />
         <select class="select" id="limitInput" name="limit">
           <option value="5">5 rows</option>
           <option value="10">10 rows</option>
@@ -289,7 +320,14 @@ function buildWidgetHtml() {
         <select class="select" id="filterInput" name="filter">
           <option value="">All orgs</option>
         </select>
+        <select class="select" id="minResourcesInput" name="minResources">
+          <option value="0">Any files</option>
+          <option value="1">1+ files</option>
+          <option value="5">5+ files</option>
+          <option value="10">10+ files</option>
+        </select>
         <button class="button" id="searchButton" type="submit">Search</button>
+        <button class="button secondary" id="exportButton" type="button">CSV</button>
       </form>
       <div class="summary">
         <span id="summaryText">Loading datasets...</span>
@@ -320,15 +358,20 @@ function buildWidgetHtml() {
         selectedIndex: 0,
         sortKey: "Resources",
         sortDirection: "desc",
-        orgFilter: ""
+        orgFilter: "",
+        localFilter: "",
+        minResources: 0
       };
 
       const elements = {
         form: document.getElementById("searchForm"),
         query: document.getElementById("queryInput"),
+        localFilter: document.getElementById("localFilterInput"),
         limit: document.getElementById("limitInput"),
         filter: document.getElementById("filterInput"),
+        minResources: document.getElementById("minResourcesInput"),
         button: document.getElementById("searchButton"),
+        exportButton: document.getElementById("exportButton"),
         summary: document.getElementById("summaryText"),
         sort: document.getElementById("sortText"),
         rows: document.getElementById("rows"),
@@ -359,9 +402,21 @@ function buildWidgetHtml() {
       }
 
       function getVisibleRows() {
-        const filtered = state.orgFilter
-          ? state.rows.filter((row) => row.Organization === state.orgFilter)
-          : [...state.rows];
+        const needle = state.localFilter.trim().toLowerCase();
+        const filtered = state.rows.filter((row) => {
+          const matchesOrg = !state.orgFilter || row.Organization === state.orgFilter;
+          const matchesResources = Number(row.Resources || 0) >= state.minResources;
+          const haystack = [
+            row.Title,
+            row.Organization,
+            row["Dataset ID"],
+            row.Notes,
+            row.License,
+            row.Formats
+          ].join(" ").toLowerCase();
+          const matchesText = !needle || haystack.includes(needle);
+          return matchesOrg && matchesResources && matchesText;
+        });
 
         return filtered.sort((a, b) => {
           const left = a[state.sortKey] ?? "";
@@ -377,7 +432,7 @@ function buildWidgetHtml() {
         const visibleRows = getVisibleRows();
         const total = state.output?.total ?? state.rows.length;
         const query = state.output?.query || elements.query.value || "current query";
-        elements.summary.textContent = visibleRows.length + " shown from " + total + " result(s) for " + query;
+        elements.summary.textContent = visibleRows.length + " shown from " + state.rows.length + " loaded row(s), " + total + " total result(s) for " + query;
         elements.sort.textContent = "Sorted by " + state.sortKey + " " + state.sortDirection;
         elements.empty.hidden = visibleRows.length > 0;
 
@@ -401,15 +456,55 @@ function buildWidgetHtml() {
         }
 
         const datasetUrl = "https://open.canada.ca/data/en/dataset/" + encodeURIComponent(row["Dataset ID"]);
+        const note = row.Notes ? '<p class="note">' + escapeHtml(truncateText(row.Notes, 420)) + '</p>' : "";
         elements.details.innerHTML =
           '<h2>' + escapeHtml(row.Title) + '</h2>' +
           '<dl class="metaGrid">' +
             '<dt>Organization</dt><dd>' + escapeHtml(row.Organization || "Unknown") + '</dd>' +
             '<dt>Resources</dt><dd>' + escapeHtml(row.Resources) + '</dd>' +
             '<dt>Updated</dt><dd>' + escapeHtml(row["Metadata Updated"] || "Unknown") + '</dd>' +
+            '<dt>Formats</dt><dd>' + escapeHtml(row.Formats || "Unknown") + '</dd>' +
+            '<dt>License</dt><dd>' + escapeHtml(row.License || "Unknown") + '</dd>' +
             '<dt>ID</dt><dd>' + escapeHtml(row["Dataset ID"]) + '</dd>' +
           '</dl>' +
-          '<a class="link" href="' + datasetUrl + '" target="_blank" rel="noreferrer">Open dataset</a>';
+          note +
+          '<div class="actions">' +
+            '<a class="link" href="' + datasetUrl + '" target="_blank" rel="noreferrer">Open dataset</a>' +
+            '<button class="smallButton" type="button" id="copyIdButton">Copy ID</button>' +
+          '</div>';
+
+        document.getElementById("copyIdButton")?.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard?.writeText(row["Dataset ID"]);
+            elements.summary.textContent = "Copied dataset ID: " + row["Dataset ID"];
+          } catch (error) {
+            elements.summary.textContent = "Dataset ID: " + row["Dataset ID"];
+          }
+        });
+      }
+
+      function truncateText(value, maxLength) {
+        const text = String(value || "").replace(/\\s+/g, " ").trim();
+        return text.length > maxLength ? text.slice(0, maxLength - 1) + "..." : text;
+      }
+
+      function toCsv(rows) {
+        const headers = ["Title", "Organization", "Resources", "Metadata Updated", "Dataset ID", "Formats", "License"];
+        const escapeCsv = (value) => '"' + String(value ?? "").replaceAll('"', '""') + '"';
+        return [headers.join(","), ...rows.map((row) => headers.map((header) => escapeCsv(row[header])).join(","))].join("\\n");
+      }
+
+      function downloadCsv() {
+        const csv = toCsv(getVisibleRows());
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "canada-open-data-results.csv";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
       }
 
       function escapeHtml(value) {
@@ -451,6 +546,20 @@ function buildWidgetHtml() {
         state.selectedIndex = 0;
         render();
       });
+
+      elements.localFilter.addEventListener("input", () => {
+        state.localFilter = elements.localFilter.value;
+        state.selectedIndex = 0;
+        render();
+      });
+
+      elements.minResources.addEventListener("change", () => {
+        state.minResources = Number(elements.minResources.value || 0);
+        state.selectedIndex = 0;
+        render();
+      });
+
+      elements.exportButton.addEventListener("click", downloadCsv);
 
       elements.form.addEventListener("submit", async (event) => {
         event.preventDefault();
@@ -526,6 +635,16 @@ async function fetchCanadaOpenDataDatasets({ query = "climate", limit = 10 }) {
       resourceCount: Array.isArray(dataset.resources) ? dataset.resources.length : 0,
       metadataUpdated: dataset.metadata_modified || dataset.revision_timestamp || "",
       datasetId: dataset.name || dataset.id || "",
+      formats: Array.isArray(dataset.resources)
+        ? [
+            ...new Set(
+              dataset.resources
+                .map((resource) => resource.format || resource.mimetype || "")
+                .filter(Boolean)
+            )
+          ].join(", ")
+        : "",
+      license: dataset.license_title || dataset.license_id || "",
       notes: dataset.notes || ""
     }));
 
@@ -616,7 +735,10 @@ export function createMcpStoreServer() {
           Organization: row.organization,
           Resources: row.resourceCount,
           "Metadata Updated": row.metadataUpdated,
-          "Dataset ID": row.datasetId
+          "Dataset ID": row.datasetId,
+          Formats: row.formats,
+          License: row.license,
+          Notes: row.notes
         }));
         const columns = [
           { key: "Title", label: "Title", align: "left" },
