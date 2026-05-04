@@ -14,22 +14,15 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function formatNumber(value) {
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return new Intl.NumberFormat("en-US").format(value);
-  }
-
-  return value ?? "";
-}
-
 function buildMarkdownTable(columns, rows) {
-  const header = `| ${columns.map((column) => escapeMarkdownCell(column.label)).join(" | ")} |`;
-  const divider = `| ${columns
+  // Add extra spaces for better rendering
+  const header = `|  ${columns.map((column) => escapeMarkdownCell(column.label)).join("  |  ")}  |`;
+  const divider = `|  ${columns
     .map((column) => (column.align === "right" ? "---:" : "---"))
-    .join(" | ")} |`;
+    .join("  |  ")}  |`;
   const body = rows.map((row) => {
     const cells = columns.map((column) => escapeMarkdownCell(row[column.key] ?? ""));
-    return `| ${cells.join(" | ")} |`;
+    return `|  ${cells.join("  |  ")}  |`;
   });
 
   return [header, divider, ...body].join("\n");
@@ -67,44 +60,54 @@ function stripMarkdownBold(text) {
   return String(text).replaceAll("**", "");
 }
 
-async function fetchWorldBankIndicator({
-  countryCode = "CAN",
-  indicatorCode = "SP.POP.TOTL",
-  startYear = 2018,
-  endYear = 2024,
-  limit = 10
-}) {
-  const requestedLimit = Math.max(1, Math.min(limit, 20));
-  const endpoint =
-    "https://api.worldbank.org/v2/country/" +
-    `${encodeURIComponent(countryCode)}/indicator/${encodeURIComponent(indicatorCode)}` +
-    `?format=json&date=${startYear}:${endYear}&per_page=${requestedLimit}`;
+function getOrganizationTitle(dataset) {
+  return (
+    dataset.organization?.title ||
+    dataset.organization?.name ||
+    dataset.author ||
+    dataset.maintainer ||
+    ""
+  );
+}
 
-  const response = await fetch(endpoint, {
+async function fetchCanadaOpenDataDatasets({ query = "climate", limit = 10 }) {
+  const requestedLimit = Math.max(1, Math.min(limit, 20));
+  const endpoint = new URL("https://open.canada.ca/data/api/3/action/package_search");
+  endpoint.searchParams.set("q", query);
+  endpoint.searchParams.set("rows", String(requestedLimit));
+
+  const response = await fetch(endpoint.toString(), {
     headers: {
       Accept: "application/json"
     }
   });
 
   if (!response.ok) {
-    throw new Error(`World Bank API request failed: ${response.status}`);
+    throw new Error(`Canada Open Data API request failed: ${response.status}`);
   }
 
   const payload = await response.json();
-  const entries = Array.isArray(payload) && Array.isArray(payload[1]) ? payload[1] : [];
-  const rows = entries
-    .filter((item) => item && item.value !== null)
+  if (!payload.success) {
+    throw new Error("Canada Open Data API returned an unsuccessful response.");
+  }
+
+  const datasets = Array.isArray(payload.result?.results) ? payload.result.results : [];
+  const rows = datasets
     .slice(0, requestedLimit)
-    .map((item) => ({
-      year: item.date,
-      value: item.value,
-      country: item.country?.value ?? countryCode,
-      indicator: item.indicator?.value ?? indicatorCode
+    .map((dataset) => ({
+      title: dataset.title || dataset.name || "",
+      organization: getOrganizationTitle(dataset),
+      resourceCount: Array.isArray(dataset.resources) ? dataset.resources.length : 0,
+      metadataUpdated: dataset.metadata_modified || dataset.revision_timestamp || "",
+      datasetId: dataset.name || dataset.id || "",
+      notes: dataset.notes || ""
     }));
 
   return {
-    source: "World Bank Open Data API",
-    endpoint,
+    source: "Government of Canada Open Data Portal",
+    endpoint: endpoint.toString(),
+    query,
+    total: payload.result?.count ?? rows.length,
     rows
   };
 }
@@ -118,34 +121,18 @@ export function createMcpStoreServer() {
 
   server.tool(
     "queryOpenDatabase",
-    "Fetches open data from World Bank and returns both raw rows and a Markdown table widget.",
+    "Searches the Government of Canada Open Data portal and returns dataset metadata as raw rows and a table widget.",
     {
       databaseId: z
-        .literal("world_bank")
-        .default("world_bank")
-        .describe("Open database identifier. Currently supports only world_bank."),
-      countryCode: z
+        .literal("canada_open_data")
+        .default("canada_open_data")
+        .describe("Open database identifier. Currently supports only canada_open_data."),
+      query: z
         .string()
-        .length(3)
-        .default("CAN")
-        .describe("ISO-3 country code, e.g. CAN, USA, FRA."),
-      indicatorCode: z
-        .string()
-        .min(3)
-        .default("SP.POP.TOTL")
-        .describe("World Bank indicator code, e.g. SP.POP.TOTL for population."),
-      startYear: z
-        .number()
-        .int()
-        .min(1960)
-        .max(2100)
-        .default(2018),
-      endYear: z
-        .number()
-        .int()
-        .min(1960)
-        .max(2100)
-        .default(new Date().getFullYear()),
+        .trim()
+        .min(1)
+        .default("climate")
+        .describe("Search text for Canada Open Data datasets, e.g. climate, housing, health."),
       limit: z
         .number()
         .int()
@@ -153,74 +140,56 @@ export function createMcpStoreServer() {
         .max(20)
         .default(10)
     },
-    async ({ countryCode, indicatorCode, startYear, endYear, limit }) => {
-      if (startYear > endYear) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: "Invalid range: startYear must be less than or equal to endYear."
-            }
-          ],
-          isError: true
-        };
-      }
-
+    async ({ query, limit }) => {
       try {
-        const result = await fetchWorldBankIndicator({
-          countryCode,
-          indicatorCode,
-          startYear,
-          endYear,
+        const result = await fetchCanadaOpenDataDatasets({
+          query,
           limit
         });
-        const sortedRows = [...result.rows].sort((a, b) => Number(b.year) - Number(a.year));
-        const tableRows = sortedRows.map((row) => ({
-          Year: row.year,
-          Value: formatNumber(row.value),
-          Country: row.country,
-          Indicator: row.indicator
+        const tableRows = result.rows.map((row) => ({
+          Title: row.title,
+          Organization: row.organization,
+          Resources: row.resourceCount,
+          "Metadata Updated": row.metadataUpdated,
+          "Dataset ID": row.datasetId
         }));
         const columns = [
-          { key: "Year", label: "Year", align: "left" },
-          { key: "Value", label: "Value", align: "right" },
-          { key: "Country", label: "Country", align: "left" },
-          { key: "Indicator", label: "Indicator", align: "left" }
+          { key: "Title", label: "Title", align: "left" },
+          { key: "Organization", label: "Organization", align: "left" },
+          { key: "Resources", label: "Resources", align: "right" },
+          { key: "Metadata Updated", label: "Metadata Updated", align: "left" },
+          { key: "Dataset ID", label: "Dataset ID", align: "left" }
         ];
         const markdownTable = buildMarkdownTable(columns, tableRows);
         const htmlTable = buildHtmlTable(columns, tableRows);
-        const years = sortedRows.map((row) => Number(row.year)).filter((year) => Number.isFinite(year));
-        const minYear = years.length > 0 ? Math.min(...years) : startYear;
-        const maxYear = years.length > 0 ? Math.max(...years) : endYear;
         const title =
           tableRows.length > 0
-            ? `**${tableRows[0].Country} - ${tableRows[0].Indicator} (${minYear}-${maxYear})**`
-            : `**${countryCode} - ${indicatorCode} (${startYear}-${endYear})**`;
+            ? `**Canada Open Data results for "${query}"**`
+            : `**No Canada Open Data results for "${query}"**`;
 
         return {
           content: [
             {
               type: "text",
               text: [
-                `Summary: ${tableRows.length} row(s) returned.`,
+                `Summary: ${tableRows.length} dataset(s) returned out of ${result.total} matching result(s).`,
                 `Data source: ${result.source}`,
                 `Endpoint: ${result.endpoint}`,
                 "",
                 title,
                 "",
-                markdownTable,
-                "",
-                "HTML table:",
-                htmlTable
+                markdownTable
               ].join("\n")
             }
           ],
           structuredContent: {
             source: result.source,
             endpoint: result.endpoint,
+            query: result.query,
+            total: result.total,
             columns: columns.map((column) => column.label),
             rows: tableRows,
-            rawRows: sortedRows,
+            rawRows: result.rows,
             markdownTable,
             htmlTable,
             widgetType: "table",
